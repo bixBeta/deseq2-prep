@@ -9,7 +9,7 @@ A browser-based tool for building a DESeq2-ready RDS file from a raw count matri
 
 ## What it does
 
-1. **Upload a count matrix** — tab-delimited text file (genes × samples)
+1. **Upload a count matrix** — single matrix file (genes × samples) **or** multiple per-sample count files that are merged automatically
 2. **Define sample metadata** — type group assignments directly in the browser, or import an existing metadata file
 3. **Download an RDS** — a `list(counts, metadata)` R object ready for upload to [DESeq2 ExploreR](https://github.com/bixBeta/deseq2-explorer)
 
@@ -20,6 +20,8 @@ Everything runs entirely in your browser via [WebR](https://webr.r-wasm.org) (R 
 ## Input format
 
 ### Count matrix (Step 1)
+
+#### Option A — Single matrix file
 
 A tab-delimited (`.txt` / `.tsv`) or comma-delimited (`.csv`) file with genes as rows and samples as columns.
 
@@ -37,7 +39,33 @@ ENSG00001  142      87       201
 ENSG00002  0        12       5
 ```
 
-Both formats are detected automatically.
+Both formats are detected automatically. Column headers are cleaned of common tool suffixes (see below).
+
+#### Option B — Multiple per-sample files
+
+Drop or select multiple files at once — one file per sample. Each file should have two columns: gene ID and count. The first column is always treated as the gene key regardless of the header name.
+
+```
+# e.g. SRR001.ReadsPerGene.out.tab
+ENSG00001  142
+ENSG00002  0
+```
+
+Files are merged by gene ID (union across all files); missing values are filled with **0**. STAR/HTSeq summary rows (`__` / `N_` prefixes) are skipped automatically.
+
+#### Suffix stripping
+
+The following suffixes are automatically stripped from file names and column headers to form clean sample names:
+
+| Tool | Suffixes stripped |
+|------|-------------------|
+| **STAR** | `.ReadsPerGene.out.tab`, `.ReadsPerGene.out` |
+| **featureCounts** | `.featureCounts`, `_featureCounts` |
+| **HTSeq-count** | `.htseq-count`, `.htseq`, `_htseq` |
+| **Generic** | `.rawCounts`, `_rawCounts`, `.counts`, `.count` |
+| **Extensions** | `.txt`, `.tsv`, `.csv`, `.tab`, `.out` |
+
+Both `.` and `_` separators are handled.
 
 ### Metadata (Step 2)
 
