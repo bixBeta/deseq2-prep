@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DESeq2 Input Prep · WebR</title>
   <meta name="description" content="Build a DESeq2-ready RDS file from a count matrix and metadata — entirely in the browser via WebR. No R installation required." />
+  <!-- Blocking script: apply saved theme before first paint to prevent flash -->
+  <script>
+    (function(){
+      var saved = localStorage.getItem('deseq2-prep-theme');
+      var light = saved ? saved === 'light' : true;
+      if (light) document.documentElement.classList.add('light');
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -32,7 +40,7 @@
     }
 
     /* ── Light mode ── */
-    body.light {
+    html.light body, html.light {
       --bg:      #f8fafc;
       --bg2:     #f1f5f9;
       --surface: rgba(0,0,0,0.04);
@@ -580,7 +588,7 @@ import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
   const iconMoon = document.getElementById('icon-moon');
 
   function applyTheme(light) {
-    document.body.classList.toggle('light', light);
+    document.documentElement.classList.toggle('light', light);
     iconSun.style.display  = light ? 'none' : '';
     iconMoon.style.display = light ? ''     : 'none';
     localStorage.setItem('deseq2-prep-theme', light ? 'light' : 'dark');
