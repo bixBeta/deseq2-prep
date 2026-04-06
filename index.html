@@ -597,7 +597,7 @@ import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
   applyTheme(isLight);
 
   btn.addEventListener('click', () => {
-    applyTheme(!document.body.classList.contains('light'));
+    applyTheme(!document.documentElement.classList.contains('light'));
   });
 })();
 
