@@ -321,6 +321,30 @@
     footer a:hover { color: var(--t1); }
 
     #file-inp, #meta-file-inp { display: none; }
+
+    /* ── STAR strandedness modal ──────────────────────────────────────────── */
+    .strand-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .strand-card {
+      background: var(--bg2); border: 1px solid var(--bord2); border-radius: 14px;
+      padding: 28px; max-width: 540px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .strand-opt {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 14px; border-radius: 9px; border: 2px solid var(--border);
+      cursor: pointer; transition: all .15s; background: var(--surface); margin-bottom: 8px;
+    }
+    .strand-opt:hover   { border-color: var(--accent); background: rgba(99,102,241,.05); }
+    .strand-opt.selected{ border-color: var(--accent); background: rgba(99,102,241,.1); }
+    .strand-opt input[type=radio] { margin-top: 3px; accent-color: var(--accent); flex-shrink: 0; }
+    .strand-opt-title { font-size: .88rem; font-weight: 600; color: var(--t1); }
+    .strand-opt-desc  { font-size: .75rem; color: var(--t2); margin-top: 3px; line-height: 1.5; }
+    .strand-opt-meta  { font-size: .7rem; color: var(--t3); margin-top: 4px; font-family: monospace; }
+    .strand-suggested { font-size: .68rem; color: var(--ok); margin-left: 7px; font-weight: 500; }
   </style>
 </head>
 <body>
@@ -417,8 +441,8 @@
       <p>Drag &amp; drop count file(s) here, or click to browse</p>
       <small>
         <strong>Single file</strong>: full matrix (genes × samples) &nbsp;·&nbsp;
-        <strong>Multiple files</strong>: one file per sample, merged automatically
-        &nbsp;·&nbsp; tool suffixes stripped from names (<code>.rawCounts</code>, <code>.ReadsPerGene.out.tab</code>, <code>.featureCounts</code>, <code>.htseq-count</code>, <code>.counts</code>, …)
+        <strong>Multiple files</strong>: one file per sample, merged automatically &nbsp;·&nbsp;
+        <strong>STAR</strong> <code>ReadsPerGene.out.tab</code> files auto-detected — strandedness picker shown automatically
       </small>
     </div>
     <input type="file" id="file-inp" accept=".txt,.tsv,.csv" multiple />
@@ -563,6 +587,57 @@
     </div>
   </div>
 
+
+<!-- ── STAR strandedness modal ───────────────────────────────────────────────── -->
+<div id="strand-overlay" class="strand-overlay" style="display:none">
+  <div class="strand-card">
+    <div style="font-size:.95rem;font-weight:700;color:var(--t1);margin-bottom:6px">
+      STAR Count Files Detected
+    </div>
+    <div style="font-size:.78rem;color:var(--t2);margin-bottom:18px">
+      STAR outputs three count columns per file. Select the strandedness that matches your library prep:
+    </div>
+
+    <label class="strand-opt selected" onclick="selectStrand(this)">
+      <input type="radio" name="strand-pick" value="1" checked />
+      <div>
+        <div class="strand-opt-title">Unstranded <span class="strand-suggested" id="ss-0"></span></div>
+        <div class="strand-opt-desc">Reads from both strands counted together. Used with non-strand-specific protocols.</div>
+        <div class="strand-opt-meta" id="sm-0"></div>
+      </div>
+    </label>
+
+    <label class="strand-opt" onclick="selectStrand(this)">
+      <input type="radio" name="strand-pick" value="2" />
+      <div>
+        <div class="strand-opt-title">Forward (1st read strand) <span class="strand-suggested" id="ss-1"></span></div>
+        <div class="strand-opt-desc">Read 1 maps to the same strand as the transcript. Common with dUTP-based kits (e.g. TruSeq Stranded).</div>
+        <div class="strand-opt-meta" id="sm-1"></div>
+      </div>
+    </label>
+
+    <label class="strand-opt" onclick="selectStrand(this)">
+      <input type="radio" name="strand-pick" value="3" />
+      <div>
+        <div class="strand-opt-title">Reverse (2nd read strand) <span class="strand-suggested" id="ss-2"></span></div>
+        <div class="strand-opt-desc">Read 1 maps to the reverse complement of the transcript. Common with Illumina TruSeq RF kits.</div>
+        <div class="strand-opt-meta" id="sm-2"></div>
+      </div>
+    </label>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+      <button id="strand-cancel-btn" class="btn-ghost" style="padding:7px 16px;border-radius:8px;
+        border:1px solid var(--bord2);background:var(--surface);color:var(--t2);cursor:pointer;font-size:.82rem">
+        Cancel
+      </button>
+      <button id="strand-confirm-btn" style="padding:7px 18px;border-radius:8px;
+        background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:.82rem;font-weight:600">
+        Build Matrix
+      </button>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <!-- ── Footer ───────────────────────────────────────────────────────────────── -->
@@ -672,13 +747,94 @@ fInp.addEventListener('change', () => {
   fInp.value = '';
 });
 
-// Single file — existing behaviour (full matrix, any number of samples)
+// ── STAR detection + strandedness modal ───────────────────────────────────────
+let _strandPending = null;
+
+function isStarFile(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+                    .trim().split('\n').slice(0, 10);
+  const hasNUnmapped = lines.some(l => /^N_unmapped/i.test(l));
+  const hasFourCols  = lines.some(l => l.split('\t').length >= 4);
+  return hasNUnmapped && hasFourCols;
+}
+
+function computeStarColSums(loaded) {
+  const sums = [0, 0, 0];
+  for (const { text } of loaded) {
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+                      .trim().split('\n').filter(l => l.trim());
+    for (const line of lines) {
+      if (/^(__|\bN_)/i.test(line)) continue;
+      const cols = line.split('\t');
+      sums[0] += Number(cols[1]) || 0;
+      sums[1] += Number(cols[2]) || 0;
+      sums[2] += Number(cols[3]) || 0;
+    }
+  }
+  return sums;
+}
+
+function showStrandModal(loaded) {
+  _strandPending = loaded;
+  const sums    = computeStarColSums(loaded);
+  const maxSum  = Math.max(...sums);
+  const fmt     = n => (n / 1e6).toFixed(1) + 'M';
+  const labels  = ['Unstranded', 'Forward', 'Reverse'];
+
+  sums.forEach((s, i) => {
+    const isBest = s === maxSum;
+    document.getElementById(`sm-${i}`).textContent =
+      `Total counts across ${loaded.length} file(s): ${fmt(s)}`;
+    document.getElementById(`ss-${i}`).textContent = isBest ? '✓ suggested' : '';
+    // Auto-select the best option
+    if (isBest) {
+      document.querySelectorAll('.strand-opt').forEach((el, j) => {
+        el.classList.toggle('selected', j === i);
+        el.querySelector('input[type=radio]').checked = j === i;
+      });
+    }
+  });
+
+  document.getElementById('strand-overlay').style.display = 'flex';
+}
+
+function selectStrand(el) {
+  document.querySelectorAll('.strand-opt').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  el.querySelector('input[type=radio]').checked = true;
+}
+
+document.getElementById('strand-cancel-btn').addEventListener('click', () => {
+  document.getElementById('strand-overlay').style.display = 'none';
+  _strandPending = null;
+});
+
+document.getElementById('strand-confirm-btn').addEventListener('click', () => {
+  const checked = document.querySelector('input[name=strand-pick]:checked');
+  if (!checked || !_strandPending) return;
+  const colIndex = Number(checked.value);
+  document.getElementById('strand-overlay').style.display = 'none';
+  try {
+    const merged = mergeCountFiles(_strandPending, colIndex);
+    applyMatrix(merged);
+  } catch (err) { alert('Could not merge files:\n' + err.message); }
+  _strandPending = null;
+});
+
+// Single file — detect STAR or parse as full matrix
 function readCountFile(file) {
-  document.getElementById('file-list').style.display = 'none';
   const reader = new FileReader();
   reader.onload = e => {
-    try   { parseMatrix(e.target.result, file.name); }
-    catch (err) { alert('Could not parse file:\n' + err.message); }
+    const text = e.target.result;
+    try {
+      if (isStarFile(text)) {
+        showFileList([file]);
+        showStrandModal([{ name: file.name, text }]);
+      } else {
+        document.getElementById('file-list').style.display = 'none';
+        parseMatrix(text, file.name);
+      }
+    } catch (err) { alert('Could not parse file:\n' + err.message); }
   };
   reader.readAsText(file);
 }
@@ -694,8 +850,13 @@ function handleMultipleFiles(files) {
     reader.onload = e => {
       loaded.push({ name: file.name, text: e.target.result });
       if (++done === fileArr.length) {
-        try   { mergeCountFiles(loaded); }
-        catch (err) { alert('Could not merge files:\n' + err.message); }
+        // If any file looks like STAR, show modal for the whole batch
+        if (loaded.some(f => isStarFile(f.text))) {
+          showStrandModal(loaded);
+        } else {
+          try   { applyMatrix(mergeCountFiles(loaded)); }
+          catch (err) { alert('Could not merge files:\n' + err.message); }
+        }
       }
     };
     reader.readAsText(file);
@@ -716,8 +877,10 @@ function showFileList(files) {
   }).join('');
 }
 
-// Merge multiple single-sample count files into one matrix
-function mergeCountFiles(loaded) {
+// Merge multiple single-sample count files into one matrix.
+// colIndex: which tab-delimited column holds counts (1-based after gene col):
+//   1 = unstranded, 2 = forward-strand, 3 = reverse-strand  (default 1)
+function mergeCountFiles(loaded, colIndex = 1) {
   const samples = [];   // [{ sampleName, counts: Map<gene, count> }]
 
   for (const { name, text } of loaded) {
@@ -740,7 +903,8 @@ function mergeCountFiles(loaded) {
       if (!geneId) continue;
       // Skip STAR / HTSeq summary rows
       if (/^(__|\bN_)/i.test(geneId)) continue;
-      const n = Number(cols[1] ?? '');
+      // Use selected count column (colIndex); skip if not numeric
+      const n = Number(cols[colIndex] ?? '');
       counts.set(geneId, isNaN(n) ? 0 : n);
     }
     samples.push({ sampleName, counts });
@@ -756,7 +920,7 @@ function mergeCountFiles(loaded) {
   const sampleNames = samples.map(s => s.sampleName);
   const rows = geneNames.map(g => samples.map(s => s.counts.get(g) ?? 0));
 
-  applyMatrix({ geneNames, sampleNames, rows, sep: '\t', fileName: `${samples.length} files merged` });
+  return { geneNames, sampleNames, rows, sep: '\t', fileName: `${samples.length} files merged` };
 }
 
 function parseMatrix(text, fileName) {
